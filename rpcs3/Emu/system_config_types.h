@@ -333,6 +333,12 @@ enum class output_scaling_mode
 	fsr
 };
 
+enum class postprocess_antialiasing_mode
+{
+	disabled,
+	smaa
+};
+
 enum class stereo_render_mode_options
 {
 	disabled,

@@ -8,6 +8,7 @@
 #include "upscalers/bilinear_pass.hpp"
 #include "upscalers/fsr_pass.h"
 #include "upscalers/nearest_pass.hpp"
+#include "antialias/smaa.hpp"
 #include "util/asm.hpp"
 #include "util/video_provider.h"
 
@@ -61,8 +62,9 @@ void VKGSRender::reinitialize_swapchain()
 		frame_context_cleanup(&ctx);
 	}
 
-	// Discard the current upscaling pipeline if any
+	// Discard the current upscaling and antialiasing pipelines if any
 	m_upscaler.reset();
+	m_antialias.reset();
 
 	// Drain all the queues
 	vkDeviceWaitIdle(*m_device);
@@ -658,6 +660,12 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 		}
 	}
 
+	const postprocesss_antialiasing_mode postprocess_antialiasing = g_cfg.video.postprocess_antialiasing.get();
+
+	if (!m_antialias || m_postprocess_antialiasing != postprocess_antialiasing) {
+		m_antialias = std::make_unique<vk::smaa_pass>();
+	}
+
 	if (image_to_flip)
 	{
 		const bool use_full_rgb_range_output = g_cfg.video.full_rgb_range_output.get();
@@ -667,8 +675,12 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 			if (image_to_flip) calibration_src.push_back(image_to_flip);
 			if (image_to_flip2) calibration_src.push_back(image_to_flip2);
 
+			// Run antialiasing at internal resolution, before upscaling
+			m_antialias->antialias_output(*m_current_command_buffer, image_to_flip, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED, request, mode);
+
 			if (m_output_scaling == output_scaling_mode::fsr && avconfig.stereo_mode == stereo_render_mode_options::disabled) // 3D will be implemented later
 			{
+
 				// Run upscaling pass before the rest of the output effects pipeline
 				// This can be done with all upscalers but we already get bilinear upscaling for free if we just out the filters directly
 				VkImageBlit request = {};
@@ -696,6 +708,7 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 			direct_fbo = vk::get_framebuffer(*m_device, m_swapchain_dims.width, m_swapchain_dims.height, VK_FALSE, single_target_pass, m_swapchain->get_surface_format(), target_image);
 			direct_fbo->add_ref();
 
+
 			vk::get_overlay_pass<vk::video_out_calibration_pass>()->run(
 				*m_current_command_buffer, areau(aspect_ratio), direct_fbo, calibration_src,
 				avconfig.gamma, !use_full_rgb_range_output, avconfig.stereo_mode, single_target_pass);
@@ -718,6 +731,9 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 				vk::change_image_layout(*m_current_command_buffer, target_image, target_layout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, subresource_range);
 				target_layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 			}
+
+			// Run antialiasing at internal resolution, before upscaling
+			m_antialias->scale_output(*m_current_command_buffer, image_to_flip, target_image, target_layout, rgn, UPSCALE_AND_COMMIT | UPSCALE_DEFAULT_VIEW);
 
 			m_upscaler->scale_output(*m_current_command_buffer, image_to_flip, target_image, target_layout, rgn, UPSCALE_AND_COMMIT | UPSCALE_DEFAULT_VIEW);
 		}

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "upscalers/upscaling.h"
+#include "antialias/antialiasing.h"
 
 #include "vkutils/descriptors.h"
 #include "vkutils/data_heap.h"
@@ -73,7 +74,9 @@ private:
 	std::unique_ptr<vk::buffer_view> null_buffer_view;
 
 	std::unique_ptr<vk::upscaler> m_upscaler;
+	std::unique_ptr<vk::antialias> m_antialias;
 	output_scaling_mode m_output_scaling{output_scaling_mode::bilinear};
+	postprocess_antialiasing_mode m_postprocesss_antialiasing{postprocess_antialiasing_mode::smaa};
 
 	std::unique_ptr<vk::buffer> m_cond_render_buffer;
 	u64 m_cond_render_sync_tag = 0;
